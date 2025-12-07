@@ -1,9 +1,11 @@
 #!/bin/bash
 
+# Ukol lekce 8
 
-# Ukol lekce 6
 
-
+#========================================
+# Globální proměnné
+#========================================
 LOG_DESTINATION="stdout"
 LOG_FILE=""
 EXIT_CODE=0
@@ -13,7 +15,11 @@ DO_UPGRADE=0
 DO_SYMLINK=0
 DO_LINK=0
 DO_REGEX=0
+DO_PROCINFO=0
 
+#========================================
+# Log funkce
+#========================================
 log() {
     local msg="$1"
     local ts
@@ -42,31 +48,41 @@ logError() {
     fi
 }
 
+#========================================
+# HELP
+#========================================
 show_help() {
     cat <<EOF
 Použití: $0 [volby]
 
 Volby (mohou se kombinovat):
-  -h, --help        Zobrazí tuto nápovědu
-  -a                Vypíše balíčky, které mají dostupný update (APT)
-  -u                Provede update/upgrade balíčků (APT)
-  -s                Vytvoří soft link /bin/linux_cli na tento skript
-  -l                Interaktivně vytvoří link (soft/hard) dle zadání uživatele
-  -r                Najde soubory obsahující písmena 'b','e','a','e' v tomto pořadí (b.*e.*a.*e)
-  -f SOUBOR         Logování do souboru SOUBOR (pokud existuje, bude se appendovat)
+  -h, --help     Zobrazí tuto nápovědu
+  -a             Vypíše balíčky, které mají dostupný update (APT)
+  -u             Provede update/upgrade balíčků (APT)
+  -s             Vytvoří soft link /bin/linux_cli na tento skript
+  -l             Interaktivně vytvoří link (soft/hard)
+  -r             Najde soubory s obsahem b.*e.*a.*e
+  -p             Zobrazí informace o procesu (název, PID, PPID, niceness, priorita, počet procesů)
+  -f SOUBOR      Logování do souboru (append)
+
+Pokud skript spustíš BEZ parametrů → zobrazí se MENU.
 
 Příklady:
   $0 -a
-  $0 -a -f log_output.txt
-  $0 -a -s -u
+  $0 -a -f log.txt
+  $0 -a -u -s
+  $0 -p
 EOF
 }
 
+#========================================
+# Nastavení log souboru (-f)
+#========================================
 nastav_log_soubor() {
     local file="$1"
 
     if [ -z "$file" ]; then
-        logError "Nebyl zadán název log souboru za parametrem -f."
+        logError "Za -f musí být uveden název souboru."
         return 1
     fi
 
@@ -74,15 +90,15 @@ nastav_log_soubor() {
         if [ -w "$file" ]; then
             LOG_DESTINATION="file"
             LOG_FILE="$file"
-            log "Log soubor '$file' existuje, budu zapisovat (append)."
+            log "Log soubor '$file' existuje, zapisuji append."
         else
-            logError "Log soubor '$file' existuje, ale není zapisovatelný."
+            logError "Do souboru '$file' nelze zapisovat."
             return 1
         fi
     else
         touch "$file" 2>/dev/null
         if [ $? -ne 0 ]; then
-            logError "Nepodařilo se vytvořit log soubor '$file'."
+            logError "Nelze vytvořit soubor '$file'."
             return 1
         fi
         LOG_DESTINATION="file"
@@ -93,27 +109,33 @@ nastav_log_soubor() {
     return 0
 }
 
+#========================================
+# Funkce: vypsat APT updaty
+#========================================
 vypsat_updaty() {
     if ! command -v apt >/dev/null 2>&1; then
-        logError "Tato funkce je připravena pro systémy s APT (Debian/Ubuntu)."
+        logError "APT není dostupný."
         return 1
     fi
 
-    log "Aktualizuji seznam balíčků (apt update)..."
-    sudo apt update >/tmp/linux_cli_apt_update.log 2>&1
+    log "Provádím apt update..."
+    sudo apt update >/tmp/linux_cli_apt.log 2>&1
     if [ $? -ne 0 ]; then
-        logError "apt update selhal. Podrobnosti jsou v /tmp/linux_cli_apt_update.log."
+        logError "apt update selhal."
         return 1
     fi
 
-    log "Vypisuji balíčky, které mají dostupný update:"
+    log "Seznam upgradovatelných balíků:"
     apt list --upgradable 2>/dev/null
     return 0
 }
 
+#========================================
+# Funkce: apt update + upgrade
+#========================================
 update_upgrade_balicku() {
     if ! command -v apt >/dev/null 2>&1; then
-        logError "Tato funkce je připravena pro systémy s APT (Debian/Ubuntu)."
+        logError "APT není dostupný."
         return 1
     fi
 
@@ -131,17 +153,20 @@ update_upgrade_balicku() {
         return 1
     fi
 
-    log "Update/upgrade balíčků úspěšně dokončen."
+    log "APT upgrade dokončen."
     return 0
 }
 
+#========================================
+# Funkce: symlink /bin/linux_cli
+#========================================
 vytvor_symlink_do_bin() {
     local script_path
     script_path="$(realpath "$0")"
     local target="/bin/linux_cli"
 
     if [ ! -w /bin ]; then
-        logError "Nemám právo zapisovat do /bin. Spusť skript pomocí sudo."
+        logError "Chybí práva do /bin (spusť pomocí sudo)."
         return 1
     fi
 
@@ -149,34 +174,39 @@ vytvor_symlink_do_bin() {
         local current_target
         current_target="$(readlink "$target")"
         if [ "$current_target" = "$script_path" ]; then
-            log "Symlink $target již existuje a ukazuje na tento skript."
+            log "Symlink již existuje a ukazuje na tento skript."
             return 0
         else
-            logError "Symlink $target již existuje, ale ukazuje na '$current_target'."
+            logError "$target existuje a ukazuje na '$current_target'."
             return 1
         fi
-    elif [ -e "$target" ]; then
-        logError "$target již existuje a není to symlink."
+    fi
+
+    if [ -e "$target" ]; then
+        logError "$target existuje a není to symlink."
         return 1
     fi
 
     ln -s "$script_path" "$target"
     if [ $? -eq 0 ]; then
-        log "Symlink $target -> $script_path byl vytvořen."
+        log "Symlink vytvořen: $target -> $script_path"
         return 0
-    else
-        logError "Nepodařilo se vytvořit symlink $target."
-        return 1
     fi
+
+    logError "Nepodařilo se vytvořit symlink."
+    return 1
 }
 
+#========================================
+# Funkce: interaktivní link
+#========================================
 vytvor_link() {
-    read -rp "Zadej zdroj (existing soubor/adresář): " src
-    read -rp "Zadej cílovou cestu (jméno linku): " dest
-    read -rp "Typ linku [soft/hard]: " typ
+    read -rp "Zadej zdroj: " src
+    read -rp "Zadej cíl: " dest
+    read -rp "Typ [soft/hard]: " typ
 
     if [ ! -e "$src" ]; then
-        logError "Zdroj '$src' neexistuje."
+        logError "Zdroj neexistuje."
         return 1
     fi
 
@@ -186,75 +216,120 @@ vytvor_link() {
     fi
 
     case "$typ" in
-        soft|symbolic)
-            ln -s "$src" "$dest" 2>/dev/null
-            if [ $? -eq 0 ]; then
+        soft)
+            if ln -s "$src" "$dest"; then
                 log "Soft link vytvořen: $dest -> $src"
-                return 0
             else
-                logError "Nepodařilo se vytvořit soft link."
-                return 1
+                logError "Chyba při tvorbě soft linku."
             fi
             ;;
         hard)
-            ln "$src" "$dest" 2>/dev/null
-            if [ $? -eq 0 ]; then
+            if ln "$src" "$dest"; then
                 log "Hard link vytvořen: $dest -> $src"
-                return 0
             else
-                logError "Nepodařilo se vytvořit hard link."
-                return 1
+                logError "Chyba při tvorbě hard linku."
             fi
             ;;
         *)
-            logError "Neznámý typ linku: $typ (použij 'soft' nebo 'hard')."
+            logError "Typ musí být soft/hard."
             return 1
             ;;
     esac
 }
 
+#========================================
+# Funkce: regex find b.*e.*a.*e
+#========================================
 najdi_soubory_beae() {
-    read -rp "Zadej adresář, odkud hledat (výchozí je aktuální .): " dir
+    read -rp "Hledat v adresáři (default .): " dir
     dir="${dir:-.}"
 
     if [ ! -d "$dir" ]; then
-        logError "'$dir' není adresář."
+        logError "Není adresář: $dir"
         return 1
     fi
 
-    log "Hledám soubory v '$dir', které obsahují vzor b.*e.*a.*e ..."
+    log "Hledám soubory s obsahem b.*e.*a.*e v '$dir'..."
     find "$dir" -type f -exec grep -lE 'b.*e.*a.*e' {} \; 2>/dev/null
-    return 0
 }
 
+#========================================
+# Funkce: INFO O PROCESU (PID, PPID, název procesu, niceness, priorita, počet procesů)
+#========================================
+zobraz_info_procesu() {
+    local pid="$$"
+    local ppid="$PPID"
+    local priority="N/A"
+    local niceness="N/A"
+    local procname="N/A"
+    local total_procs="N/A"
+
+    if command -v ps >/dev/null 2>&1; then
+        priority="$(ps -p "$pid" -o pri= | awk '{print $1}')"
+        niceness="$(ps -p "$pid" -o ni=  | awk '{print $1}')"
+        procname="$(ps -p "$pid" -o comm= 2>/dev/null)"
+        total_procs="$(ps -e --no-headers | wc -l)"
+    else
+        logError "Příkaz 'ps' není dostupný."
+        return 1
+    fi
+
+    echo "Informace o procesu:"
+    echo "  Název procesu         : $procname"
+    echo "  PID aktuálního procesu: $pid"
+    echo "  PID rodičovského proc.: $ppid"
+    echo "  Priorita (PRI)         : $priority"
+    echo "  Niceness (NI)          : $niceness"
+    echo "  Celkový počet procesů  : $total_procs"
+
+    log "Zobrazeny informace o procesu (NAME=$procname, PID=$pid, PPID=$ppid, PRI=$priority, NI=$niceness, TOTAL=$total_procs)."
+}
+
+#========================================
+# MENU režim
+#========================================
+menu() {
+    while true; do
+        echo ""
+        echo "====== MENU linux_cli ======"
+        echo "1) Vypsat balíčky k upgradu"
+        echo "2) Provest update/upgrade"
+        echo "3) Vytvořit symlink /bin/linux_cli"
+        echo "4) Vytvořit link (soft/hard)"
+        echo "5) Regex hledání b.*e.*a.*e"
+        echo "6) Info o procesu (PID, PPID, název, priorita, niceness)"
+        echo "q) Konec"
+        echo "=============================="
+        read -rp "Volba: " v
+
+        case "$v" in
+            1) vypsat_updaty ;;
+            2) update_upgrade_balicku ;;
+            3) vytvor_symlink_do_bin ;;
+            4) vytvor_link ;;
+            5) najdi_soubory_beae ;;
+            6) zobraz_info_procesu ;;
+            q) break ;;
+            *) echo "Neplatná volba" ;;
+        esac
+    done
+}
+
+#========================================
+# Zpracování parametrů
+#========================================
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            -a)
-                DO_LIST=1
-                ;;
-            -u)
-                DO_UPGRADE=1
-                ;;
-            -s)
-                DO_SYMLINK=1
-                ;;
-            -l)
-                DO_LINK=1
-                ;;
-            -r)
-                DO_REGEX=1
-                ;;
+            -h|--help) show_help; exit 0 ;;
+            -a) DO_LIST=1 ;;
+            -u) DO_UPGRADE=1 ;;
+            -s) DO_SYMLINK=1 ;;
+            -l) DO_LINK=1 ;;
+            -r) DO_REGEX=1 ;;
+            -p) DO_PROCINFO=1 ;;
             -f)
                 shift
-                if [ $# -eq 0 ]; then
-                    logError "Za parametrem -f musí následovat název souboru."
-                    return 1
-                fi
                 nastav_log_soubor "$1" || return 1
                 ;;
             *)
@@ -264,42 +339,28 @@ parse_args() {
         esac
         shift
     done
-    return 0
 }
 
+#========================================
+# MAIN
+#========================================
 main() {
     if [ $# -eq 0 ]; then
-        show_help
-        EXIT_CODE=1
+        menu
         return
     fi
 
-    parse_args "$@"
-    if [ $? -ne 0 ]; then
-        return
-    fi
+    parse_args "$@" || return
 
-    if [ "$DO_LIST" -eq 1 ]; then
-        vypsat_updaty || true
-    fi
-
-    if [ "$DO_UPGRADE" -eq 1 ]; then
-        update_upgrade_balicku || true
-    fi
-
-    if [ "$DO_SYMLINK" -eq 1 ]; then
-        vytvor_symlink_do_bin || true
-    fi
-
-    if [ "$DO_LINK" -eq 1 ]; then
-        vytvor_link || true
-    fi
-
-    if [ "$DO_REGEX" -eq 1 ]; then
-        najdi_soubory_beae || true
-    fi
+    [ "$DO_LIST" -eq 1 ]     && vypsat_updaty
+    [ "$DO_UPGRADE" -eq 1 ]  && update_upgrade_balicku
+    [ "$DO_SYMLINK" -eq 1 ]  && vytvor_symlink_do_bin
+    [ "$DO_LINK" -eq 1 ]     && vytvor_link
+    [ "$DO_REGEX" -eq 1 ]    && najdi_soubory_beae
+    [ "$DO_PROCINFO" -eq 1 ] && zobraz_info_procesu
 }
 
+#========================================
 main "$@"
 exit "$EXIT_CODE"
 
