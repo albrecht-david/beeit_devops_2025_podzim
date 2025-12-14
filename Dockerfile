@@ -1,26 +1,30 @@
 FROM ubuntu:22.04
 
-
+# Nebudeme chtít interaktivní otázky z aptu
 ENV DEBIAN_FRONTEND=noninteractive
 
-#   - sudo (skript volá sudo apt ...)
-#   - procps (ps, pro info o procesech)
-#   - findutils (find)
-#   - grep (grep)
+# Nainstalujeme nástroje, které skript používá:
+#  - sudo   (skript volá sudo apt ...)
+#  - procps (ps, top - info o procesech)
+#  - findutils (find)
+#  - grep  (grep)
 RUN apt-get update && \
     apt-get install -y sudo procps findutils grep && \
     rm -rf /var/lib/apt/lists/*
 
-# Zkopírujeme skript do image
+# Zkopírujeme tvůj CLI skript do image
 COPY linux_cli.sh /usr/local/bin/linux_cli.sh
 
 # Ujistíme se, že je spustitelný
 RUN chmod +x /usr/local/bin/linux_cli.sh
 
-# Nastavíme pracovní adresář
+# Pracovní adresář (můžeš sem mapovat volume z hosta)
 WORKDIR /workspace
 
-# Výchozí příkaz po `docker run linux_cli
+# ENTRYPOINT = vždy se spustí tvůj skript
+ENTRYPOINT ["/usr/local/bin/linux_cli.sh"]
 
-CMD ["/usr/local/bin/linux_cli.sh"]
-
+# CMD = výchozí argumenty (žádné)
+# Když uživatel zadá parametry za 'docker run', nahradí CMD,
+# ale ENTRYPOINT zůstává.
+CMD []
