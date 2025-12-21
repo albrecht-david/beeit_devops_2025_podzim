@@ -1,0 +1,18 @@
+{
+  "name": "linux_cli devcontainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "target": "base"
+  },
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-vscode-remote.remote-containers"
+      ]
+    }
+  },
+  "remoteUser": "root"
+}
